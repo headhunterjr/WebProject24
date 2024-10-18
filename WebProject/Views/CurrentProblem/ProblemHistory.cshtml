@@ -1,0 +1,29 @@
+﻿@model ProblemTableViewModel
+@{
+    ViewData["Title"] = "Problem History";
+}
+
+<div>
+    <style>
+        table, th, td {
+            border: 1px solid black;
+        }
+    </style>
+
+    <p>Problem history:</p>
+    <table style="width:90%">
+        <tr>
+            <th>Matrix Size</th>
+            <th>Result</th>
+            <th>Time Of Issue</th>
+        </tr>
+        @foreach (Problem problem in Model.Problems)
+        {
+            <tr>
+                <td>@problem.MatrixSize</td>
+                <td>@problem.Result</td>
+                <td>@problem.TimeOfIssue</td>
+            </tr>
+        }
+    </table>
+</div>

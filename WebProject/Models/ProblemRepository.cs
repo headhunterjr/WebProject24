@@ -1,6 +1,5 @@
 ﻿
 using Microsoft.EntityFrameworkCore;
-using System.Diagnostics;
 
 namespace WebProject.Models
 {
@@ -27,7 +26,7 @@ namespace WebProject.Models
             {
                 for (int j = 0; j < size; ++j)
                 {
-                    matrix[i, j] = random.Next(-99, 99);
+                    matrix[i, j] = random.Next(-9, 9);
                 }
             }
             return matrix;
@@ -35,7 +34,7 @@ namespace WebProject.Models
 
         public async Task<IEnumerable<Problem>> GetAllProblemsAsync()
         {
-            return await _context.Problems.ToListAsync();
+            return await _context.Problems.OrderByDescending(p => p.Id).ToListAsync();
         }
 
         public async Task<Problem?> GetProblemById(int id)

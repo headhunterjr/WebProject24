@@ -1,0 +1,53 @@
+﻿@model CurrentProblem
+@{
+    ViewData["Title"] = "New Problem";
+}
+
+<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.8.2/angular.min.js"></script>
+
+<div class="text-center" ng-app="matrixApp" ng-controller="MatrixController">
+    <h1 class="display-4">Welcome</h1>
+    <form name="matrixForm" novalidate ng-submit="submitForm()">
+        <div>
+            <label for="matrixSize">Enter the matrix size:</label>
+            <input type="number" id="matrixSize" name="matrixSize" ng-model="matrixSize" min="1" required ng-class="{'is-invalid': matrixForm.matrixSize.$invalid && matrixForm.$submitted}" />
+        </div>
+        <div class="text-danger" ng-show="matrixForm.matrixSize.$error.required && matrixForm.$submitted">Matrix size is required.</div>
+        <div class="text-danger" ng-show="matrixForm.matrixSize.$error.max">Matrix size must be less than or equal to {{maxMatrixSize}}.</div>
+
+        <input type="submit" class="btn btn-primary" value="Generate and multiply matrices" ng-disabled="matrixForm.matrixSize.$invalid || matrixSize > maxMatrixSize" />
+
+        <div ng-if="result">
+            <p>Result: {{result}}</p>
+        </div>
+    </form>
+</div>
+
+<script>
+    var app = angular.module('matrixApp', []);
+    app.controller('MatrixController', ['$scope', '$http', function($scope, $http) {
+        $scope.maxMatrixSize = 1000;
+        $scope.result = null;
+
+        $scope.submitForm = function () {
+            if ($scope.matrixForm.$valid && $scope.matrixSize <= $scope.maxMatrixSize) {
+                var matrixSize = $scope.matrixSize;
+
+                $http({
+                    method: 'POST',
+                    url: '/CurrentProblem/SolveProblem',
+                    data: matrixSize, 
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                    .then(function (response) {
+                        $scope.result = response.data;
+                    }, function (error) {
+                        alert("An error occurred: " + error.data);
+                    });
+            } else {
+                alert("Please enter a valid matrix size (<= " + $scope.maxMatrixSize + ")");
+            }
+        };
+
+    }]);
+</script>
