@@ -30,7 +30,7 @@ namespace WebProject.Controllers
         [HttpPost]
         public async Task<IActionResult> SolveProblem([FromBody] int matrixSize)
         {
-            TimeSpan timeout = TimeSpan.FromSeconds(3);
+            TimeSpan timeout = TimeSpan.FromSeconds(30);
 
             using (CancellationTokenSource cts = new CancellationTokenSource())
             {
