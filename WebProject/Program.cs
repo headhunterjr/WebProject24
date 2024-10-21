@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using WebProject.Hubs;
 using WebProject.Models;
 
 namespace WebProject
@@ -17,6 +18,7 @@ namespace WebProject
             builder.Services.AddControllersWithViews();
             builder.Services.AddDbContext<ProblemDbContext>(options => options.UseSqlServer(connectionString));
             builder.Services.AddScoped<IProblemRepository, ProblemRepository>();
+            builder.Services.AddSignalR();
 
             //builder.Services.AddScoped<IUrlRepository, UrlRepository>();
 
@@ -41,6 +43,7 @@ namespace WebProject
                 name: "default",
                 pattern: "{controller=Home}/{action=Index}/{id?}");
 
+            app.MapHub<ProblemHub>("/problemHub");
             app.Run();
         }
     }

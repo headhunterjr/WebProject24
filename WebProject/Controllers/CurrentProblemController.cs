@@ -1,4 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using System.Collections.Concurrent;
+using WebProject.Hubs;
 using WebProject.Models;
 
 namespace WebProject.Controllers
@@ -6,10 +9,18 @@ namespace WebProject.Controllers
     public class CurrentProblemController : Controller
     {
         private readonly IProblemRepository _problemRepository;
+        private readonly IHubContext<ProblemHub> _problemHubContext;
 
-        public CurrentProblemController(IProblemRepository problemRepository)
+        private const int MaxConcurrentTasks = 5;
+        private static int _currentActiveTasks = 0;
+        private static readonly object _lock = new object();
+        private static readonly ConcurrentDictionary<(string userId, int matrixSize), CancellationTokenSource> _taskCancellations
+            = new ConcurrentDictionary<(string, int), CancellationTokenSource>();
+
+        public CurrentProblemController(IProblemRepository problemRepository, IHubContext<ProblemHub> problemHubContext)
         {
             _problemRepository = problemRepository ?? throw new ArgumentNullException(nameof(problemRepository));
+            _problemHubContext = problemHubContext ?? throw new ArgumentNullException(nameof(problemHubContext));
         }
 
         public IActionResult Index()
@@ -28,9 +39,19 @@ namespace WebProject.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> SolveProblem([FromBody] int matrixSize)
+        public async Task<IActionResult> SolveProblem([FromBody] ProblemRequest problemRequest)
         {
+            lock (_lock)
+            {
+                if (_currentActiveTasks >= MaxConcurrentTasks)
+                {
+                    return BadRequest("Cannot add a new task right now. Maximum concurrent tasks limit reached.");
+                }
+                _currentActiveTasks++;
+            }
+
             TimeSpan timeout = TimeSpan.FromSeconds(30);
+            string userId = problemRequest.ConnectionId;
 
             using (CancellationTokenSource cts = new CancellationTokenSource())
             {
@@ -38,26 +59,45 @@ namespace WebProject.Controllers
 
                 var calculationTask = Task.Run(async () =>
                 {
-                    DateTime timeOfIssue = DateTime.UtcNow;
-                    int[,] matrixA = _problemRepository.GenerateSquareMatrix(matrixSize);
-                    int[,] matrixB = _problemRepository.GenerateSquareMatrix(matrixSize);
-                    CurrentProblem currentProblem = new CurrentProblem
+                    try
                     {
-                        MatrixSize = matrixSize,
-                        MatrixA = matrixA,
-                        MatrixB = matrixB
-                    };
-                    long multiplicationResult = _problemRepository.MultiplyMatrices(currentProblem);
+                        DateTime timeOfIssue = DateTime.UtcNow;
 
-                    Problem problem = new Problem
+                        await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Generating Matrix A", problemRequest.MatrixSize);
+                        int[,] matrixA = _problemRepository.GenerateSquareMatrix(problemRequest.MatrixSize);
+
+                        await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Generating Matrix B", problemRequest.MatrixSize);
+                        int[,] matrixB = _problemRepository.GenerateSquareMatrix(problemRequest.MatrixSize);
+
+                        await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Multiplying Matrices", problemRequest.MatrixSize);
+                        CurrentProblem currentProblem = new CurrentProblem
+                        {
+                            MatrixSize = problemRequest.MatrixSize,
+                            MatrixA = matrixA,
+                            MatrixB = matrixB
+                        };
+                        long multiplicationResult = _problemRepository.MultiplyMatrices(currentProblem);
+
+                        await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Calculating final result", problemRequest.MatrixSize, multiplicationResult);
+
+                        Problem problem = new Problem
+                        {
+                            MatrixSize = problemRequest.MatrixSize,
+                            Result = multiplicationResult,
+                            TimeOfIssue = timeOfIssue
+                        };
+
+                        await _problemRepository.AddProblemAsync(problem);
+
+                        return multiplicationResult;
+                    }
+                    finally
                     {
-                        MatrixSize = matrixSize,
-                        Result = multiplicationResult,
-                        TimeOfIssue = timeOfIssue
-                    };
-
-                    await _problemRepository.AddProblemAsync(problem);
-                    return multiplicationResult;
+                        lock (_lock)
+                        {
+                            _currentActiveTasks--;
+                        }
+                    }
                 }, cts.Token);
 
                 var completedTask = await Task.WhenAny(calculationTask, timeoutTask);
@@ -74,5 +114,28 @@ namespace WebProject.Controllers
             }
         }
 
+        [HttpPost]
+        public IActionResult CancelProblem([FromBody] ProblemRequest problemRequest)
+        {
+            string userId = problemRequest.ConnectionId;
+            int matrixSize = problemRequest.MatrixSize;
+
+            if (_taskCancellations.TryGetValue((userId, matrixSize), out var cts))
+            {
+                cts.Cancel();
+                _taskCancellations.TryRemove((userId, matrixSize), out _);
+                _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Cancelled", matrixSize);
+                return Ok("Task has been cancelled.");
+            }
+            else
+            {
+                return NotFound("Task not found or already completed.");
+            }
+        }
+    }
+    public class ProblemRequest
+    {
+        public int MatrixSize { get; set; }
+        public string ConnectionId { get; set; } // Include the connection ID in the request model
     }
 }

@@ -3,44 +3,106 @@
     ViewData["Title"] = "New Problem";
 }
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/3.1.18/signalr.min.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.8.2/angular.min.js"></script>
 
-<div class="text-center" ng-app="matrixApp" ng-controller="MatrixController">
-    <h1 class="display-4">Welcome</h1>
-    <form name="matrixForm" novalidate ng-submit="submitForm()">
-        <div>
-            <label for="matrixSize">Enter the matrix size (no more than {{maxMatrixSize}}):</label>
-            <input type="number" id="matrixSize" name="matrixSize" ng-model="matrixSize" min="1" required ng-class="{'is-invalid': matrixForm.matrixSize.$invalid && matrixForm.$submitted}" />
-        </div><br />
-        <div class="text-danger" ng-show="matrixForm.matrixSize.$error.required && matrixForm.$submitted">Matrix size is required.</div>
-
-        <input type="submit" class="btn btn-primary" value="Generate and multiply matrices" ng-disabled="matrixForm.matrixSize.$invalid || matrixSize > maxMatrixSize" />
-
-        <div ng-if="results.length > 0">
-            <br /></><p ng-repeat="item in results">Result ({{item.matrixSize}}): {{item.result}}</p>
+<div class="container" ng-app="matrixApp" ng-controller="MatrixController">
+    <div class="row">
+        <div class="col-md-6">
+            <h2>Generate Matrix Task</h2>
+            <form name="matrixForm" novalidate ng-submit="submitForm()">
+                <div>
+                    <label for="matrixSize">Enter the matrix size (no more than {{maxMatrixSize}}):</label>
+                    <input type="number" id="matrixSize" name="matrixSize" ng-model="matrixSize" min="1" required
+                           ng-class="{'is-invalid': matrixForm.matrixSize.$invalid && matrixForm.$submitted}" />
+                </div>
+                <br />
+                <div class="text-danger" ng-show="matrixForm.matrixSize.$error.required && matrixForm.$submitted">
+                    Matrix size is required.
+                </div>
+                <input type="submit" class="btn btn-primary" value="Generate and multiply matrices"
+                       ng-disabled="matrixForm.matrixSize.$invalid || matrixSize > maxMatrixSize" />
+            </form>
         </div>
 
-    </form>
+        <div class="col-md-6">
+            <h2>Task Progress</h2>
+            <div ng-if="tasks.length > 0">
+                <div ng-repeat="task in tasks track by $index">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            Matrix Size: {{task.matrixSize}}, Stage: {{task.stage}}
+                            <span ng-if="task.result">, Result: {{task.result}}</span>
+                        </div>
+
+                        <div style="display: flex; align-items: center;">
+                            <button ng-if="task.stage !== 'Complete'" class="btn btn-danger" ng-click="cancelTask(task)" ng-disabled="task.cancelling">
+                                Cancel
+                            </button>
+
+                            <span style="margin-left: 10px; cursor: pointer; color: grey;" ng-click="removeTask(task)">X</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    <div>
+        <br /><p><a asp-controller="CurrentProblem" asp-action="ProblemHistory">View problem history</a></p>
+    </div>
 </div>
+
 
 <script>
     var app = angular.module('matrixApp', []);
     app.controller('MatrixController', ['$scope', '$http', function ($scope, $http) {
-        $scope.maxMatrixSize = 1000;
-        $scope.results = [];
+        $scope.maxMatrixSize = 10000;
+        $scope.tasks = [];
+
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/problemHub")
+            .build();
+
+        connection.start().then(function () {
+            connection.invoke("GetConnectionId").then(function (connectionId) {
+                $scope.connectionId = connectionId;
+            });
+        }).catch(function (err) {
+            return console.error(err.toString());
+        });
+
+        connection.on("ReceiveProgressUpdate", function (stage, matrixSize, result) {
+            let taskIndex = $scope.tasks.findIndex(t => t.matrixSize === matrixSize && !t.result);
+            if (taskIndex === -1) {
+                taskIndex = $scope.tasks.length;
+                $scope.tasks.push({ matrixSize: matrixSize, stage: stage, result: null, cancelling: false });
+            }
+
+            if (typeof result !== 'number') {
+                $scope.tasks[taskIndex].stage = stage;
+            } else {
+                $scope.tasks[taskIndex].stage = "Complete";
+                $scope.tasks[taskIndex].result = result;
+            }
+
+            $scope.$apply();
+        });
 
         $scope.submitForm = function () {
             if ($scope.matrixForm.$valid && $scope.matrixSize <= $scope.maxMatrixSize) {
                 var matrixSize = $scope.matrixSize;
+                $scope.matrixSize = null;
+                $scope.matrixForm.$setPristine();
+                $scope.matrixForm.$setUntouched();
 
                 $http({
                     method: 'POST',
                     url: '/CurrentProblem/SolveProblem',
-                    data: matrixSize,
+                    data: { matrixSize: matrixSize, connectionId: $scope.connectionId },
                     headers: { 'Content-Type': 'application/json' }
                 })
                     .then(function (response) {
-                        $scope.results.push({ matrixSize: matrixSize, result: response.data });
                     }, function (error) {
                         alert("An error occurred: " + error.data);
                     });
@@ -48,6 +110,30 @@
                 alert("Please enter a valid matrix size (<= " + $scope.maxMatrixSize + ")");
             }
         };
+
+        $scope.cancelTask = function (task) {
+            task.cancelling = true;
+            $http({
+                method: 'POST',
+                url: '/CurrentProblem/CancelProblem',
+                data: { matrixSize: task.matrixSize, connectionId: $scope.connectionId },
+                headers: { 'Content-Type': 'application/json' }
+            }).then(function (response) {
+                task.stage = "Cancelled";
+            }).catch(function (error) {
+                alert("Failed to cancel task: " + error.data);
+                task.cancelling = false;
+            });
+        };
+
+        $scope.removeTask = function (task) {
+            let index = $scope.tasks.indexOf(task);
+            if (index > -1) {
+                $scope.tasks.splice(index, 1);
+            }
+        };
     }]);
 </script>
+
+
 
