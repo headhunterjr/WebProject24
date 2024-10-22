@@ -26,7 +26,7 @@ namespace WebProject.Models
             {
                 for (int j = 0; j < size; ++j)
                 {
-                    matrix[i, j] = random.Next(-9, 9);
+                    matrix[i, j] = random.Next(-5, 6);
                 }
             }
             return matrix;

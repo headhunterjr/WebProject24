@@ -4,9 +4,9 @@ namespace WebProject.Hubs
 {
     public class ProblemHub : Hub
     {
-        public async Task SendProgressUpdate(string userId, string stage, int matrixSize, long? result = null)
+        public async Task SendProgressUpdate(string stage, int matrixSize, string taskId, long? result = null)
         {
-            await Clients.User(userId).SendAsync("ReceiveProgressUpdate", stage, matrixSize, result);
+            await Clients.All.SendAsync("ReceiveProgressUpdate", stage, matrixSize, taskId, result);
         }
         public string GetConnectionId()
         {
