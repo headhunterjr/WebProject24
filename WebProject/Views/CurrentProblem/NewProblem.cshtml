@@ -81,6 +81,10 @@
 
             if (typeof result !== 'number') {
                 $scope.tasks[taskIndex].stage = stage;
+
+                if (stage === "Timeout" || stage === "Cancelled") {
+                    $scope.tasks[taskIndex].cancelling = true;
+                }
             } else {
                 $scope.tasks[taskIndex].stage = "Complete";
                 $scope.tasks[taskIndex].result = result;
@@ -88,6 +92,7 @@
 
             $scope.$apply();
         });
+
 
         $scope.submitForm = function () {
             if ($scope.matrixForm.$valid && $scope.matrixSize <= $scope.maxMatrixSize) {
@@ -118,7 +123,7 @@
                 url: '/CurrentProblem/CancelProblem',
                 data: { matrixSize: task.matrixSize, connectionId: $scope.connectionId },
                 headers: { 'Content-Type': 'application/json' }
-            }).then(function (response) {
+            }).then(function () {
                 task.stage = "Cancelled";
             }).catch(function (error) {
                 alert("Failed to cancel task: " + error.data);

@@ -11,6 +11,7 @@ namespace WebProject.Controllers
         private readonly IProblemRepository _problemRepository;
         private readonly IHubContext<ProblemHub> _problemHubContext;
 
+        private const int MaxTimeLimit = 60;
         private const int MaxConcurrentTasks = 5;
         private static int _currentActiveTasks = 0;
         private static readonly object _lock = new object();
@@ -50,67 +51,78 @@ namespace WebProject.Controllers
                 _currentActiveTasks++;
             }
 
-            TimeSpan timeout = TimeSpan.FromSeconds(30);
+            TimeSpan timeout = TimeSpan.FromSeconds(MaxTimeLimit);
             string userId = problemRequest.ConnectionId;
 
-            using (CancellationTokenSource cts = new CancellationTokenSource())
+            var cts = new CancellationTokenSource();
+            _taskCancellations[(userId, problemRequest.MatrixSize)] = cts;
+
+            var timeoutTask = Task.Delay(timeout, cts.Token);
+
+            var calculationTask = Task.Run(async () =>
             {
-                var timeoutTask = Task.Delay(timeout, cts.Token);
-
-                var calculationTask = Task.Run(async () =>
+                try
                 {
-                    try
+                    DateTime timeOfIssue = DateTime.UtcNow;
+
+                    await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Generating Matrix A", problemRequest.MatrixSize);
+                    int[,] matrixA = _problemRepository.GenerateSquareMatrix(problemRequest.MatrixSize);
+                    cts.Token.ThrowIfCancellationRequested();
+
+                    await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Generating Matrix B", problemRequest.MatrixSize);
+                    int[,] matrixB = _problemRepository.GenerateSquareMatrix(problemRequest.MatrixSize);
+                    cts.Token.ThrowIfCancellationRequested();
+
+                    await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Multiplying Matrices", problemRequest.MatrixSize);
+                    CurrentProblem currentProblem = new CurrentProblem
                     {
-                        DateTime timeOfIssue = DateTime.UtcNow;
+                        MatrixSize = problemRequest.MatrixSize,
+                        MatrixA = matrixA,
+                        MatrixB = matrixB
+                    };
+                    long multiplicationResult = _problemRepository.MultiplyMatrices(currentProblem, cts.Token);
+                    await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Calculating final result", problemRequest.MatrixSize, multiplicationResult);
 
-                        await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Generating Matrix A", problemRequest.MatrixSize);
-                        int[,] matrixA = _problemRepository.GenerateSquareMatrix(problemRequest.MatrixSize);
-
-                        await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Generating Matrix B", problemRequest.MatrixSize);
-                        int[,] matrixB = _problemRepository.GenerateSquareMatrix(problemRequest.MatrixSize);
-
-                        await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Multiplying Matrices", problemRequest.MatrixSize);
-                        CurrentProblem currentProblem = new CurrentProblem
-                        {
-                            MatrixSize = problemRequest.MatrixSize,
-                            MatrixA = matrixA,
-                            MatrixB = matrixB
-                        };
-                        long multiplicationResult = _problemRepository.MultiplyMatrices(currentProblem);
-
-                        await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Calculating final result", problemRequest.MatrixSize, multiplicationResult);
-
-                        Problem problem = new Problem
-                        {
-                            MatrixSize = problemRequest.MatrixSize,
-                            Result = multiplicationResult,
-                            TimeOfIssue = timeOfIssue
-                        };
-
-                        await _problemRepository.AddProblemAsync(problem);
-
-                        return multiplicationResult;
-                    }
-                    finally
+                    Problem problem = new Problem
                     {
-                        lock (_lock)
-                        {
-                            _currentActiveTasks--;
-                        }
+                        MatrixSize = problemRequest.MatrixSize,
+                        Result = multiplicationResult,
+                        TimeOfIssue = timeOfIssue
+                    };
+
+                    await _problemRepository.AddProblemAsync(problem);
+
+                    await _problemHubContext.Clients.All.SendAsync("ProblemAdded", problem);
+
+                    return multiplicationResult;
+                }
+                catch (OperationCanceledException)
+                {
+                    await _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Cancelled", problemRequest.MatrixSize);
+                    throw;
+                }
+                finally
+                {
+                    lock (_lock)
+                    {
+                        _currentActiveTasks--;
                     }
-                }, cts.Token);
-
-                var completedTask = await Task.WhenAny(calculationTask, timeoutTask);
-
-                if (completedTask == calculationTask)
-                {
-                    cts.Cancel();
-                    return Ok(await calculationTask);
                 }
-                else
-                {
-                    return StatusCode(408, "Request Timeout: The calculation took too long.");
-                }
+            }, cts.Token);
+
+
+            var completedTask = await Task.WhenAny(calculationTask, timeoutTask);
+
+            if (completedTask == calculationTask)
+            {
+                cts.Cancel();
+                return Ok(await calculationTask);
+            }
+            else
+            {
+                cts.Cancel();
+                //return StatusCode(408, "Request Timeout: The calculation took too long.");
+                return BadRequest("Task cancelled.");
             }
         }
 
@@ -120,22 +132,22 @@ namespace WebProject.Controllers
             string userId = problemRequest.ConnectionId;
             int matrixSize = problemRequest.MatrixSize;
 
-            if (_taskCancellations.TryGetValue((userId, matrixSize), out var cts))
+            if (_taskCancellations.TryRemove((userId, matrixSize), out var cts))
             {
                 cts.Cancel();
-                _taskCancellations.TryRemove((userId, matrixSize), out _);
                 _problemHubContext.Clients.Client(userId).SendAsync("ReceiveProgressUpdate", "Cancelled", matrixSize);
-                return Ok("Task has been cancelled.");
+                return Ok();
             }
             else
             {
                 return NotFound("Task not found or already completed.");
             }
         }
+
     }
     public class ProblemRequest
     {
         public int MatrixSize { get; set; }
-        public string ConnectionId { get; set; } // Include the connection ID in the request model
+        public required string ConnectionId { get; set; }
     }
 }

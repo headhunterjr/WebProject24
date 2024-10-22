@@ -42,7 +42,7 @@ namespace WebProject.Models
             return await _context.Problems.FirstOrDefaultAsync(p => p.Id == id);
         }
 
-        public long MultiplyMatrices(CurrentProblem problem)
+        public long MultiplyMatrices(CurrentProblem problem, CancellationToken cancellationToken)
         {
             int size = problem.MatrixSize;
             int[,] resultMatrix = new int[size, size];
@@ -52,6 +52,7 @@ namespace WebProject.Models
             {
                 for (int j = 0; j < size; ++j)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     for (int k = 0; k < size; ++k)
                     {
                         resultMatrix[i, j] += problem.MatrixA[i, k] * problem.MatrixB[k, j];
