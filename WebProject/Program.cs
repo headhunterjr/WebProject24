@@ -17,6 +17,8 @@ namespace WebProject
             // Add services to the container.
             builder.Services.AddControllersWithViews();
             builder.Services.AddDbContext<ProblemDbContext>(options => options.UseSqlServer(connectionString));
+
+            builder.Services.AddDefaultIdentity<IdentityUser>().AddEntityFrameworkStores<ProblemDbContext>();
             builder.Services.AddScoped<IProblemRepository, ProblemRepository>();
             builder.Services.AddSignalR();
 
@@ -37,6 +39,7 @@ namespace WebProject
 
             app.UseRouting();
 
+            app.UseAuthentication();
             app.UseAuthorization();
 
             app.MapControllerRoute(
@@ -44,6 +47,7 @@ namespace WebProject
                 pattern: "{controller=Home}/{action=Index}/{id?}");
 
             app.MapHub<ProblemHub>("/problemHub");
+            app.MapRazorPages();
             app.Run();
         }
     }
