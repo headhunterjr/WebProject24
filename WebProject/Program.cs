@@ -20,7 +20,13 @@ namespace WebProject
 
             builder.Services.AddDefaultIdentity<IdentityUser>().AddEntityFrameworkStores<ProblemDbContext>();
             builder.Services.AddScoped<IProblemRepository, ProblemRepository>();
-            builder.Services.AddSignalR();
+            // In Program.cs or Startup.cs
+            builder.Services.AddSignalR(options =>
+            {
+                options.EnableDetailedErrors = true; // Helpful for debugging
+                options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+                options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+            });
 
             //builder.Services.AddScoped<IUrlRepository, UrlRepository>();
 
