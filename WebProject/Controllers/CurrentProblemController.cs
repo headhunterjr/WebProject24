@@ -11,8 +11,8 @@ namespace WebProject.Controllers
         private readonly IProblemRepository _problemRepository;
         private readonly IHubContext<ProblemHub> _problemHubContext;
 
-        private const int MaxTimeLimit = 60;
-        private const int MaxConcurrentTasks = 5;
+        private const int MaxTimeLimit = 600;
+        private const int MaxConcurrentTasks = 2;
         private static int _currentActiveTasks = 0;
         private static readonly object _lock = new object();
         private static ConcurrentDictionary<(string userId, string taskId), CancellationTokenSource> _taskCancellations
