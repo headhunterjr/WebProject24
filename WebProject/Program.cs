@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 using WebProject.Hubs;
 using WebProject.Models;
 
@@ -24,6 +25,26 @@ namespace WebProject
                 options.EnableDetailedErrors = true;
                 options.KeepAliveInterval = TimeSpan.FromSeconds(15);
                 options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+            }).AddStackExchangeRedis(redisOptions =>
+            {
+                redisOptions.ConnectionFactory = async writer =>
+                {
+                    var configuration = ConfigurationOptions.Parse(
+                        builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379");
+
+                    var connection = await ConnectionMultiplexer.ConnectAsync(configuration, writer);
+                    connection.ConnectionFailed += (_, e) =>
+                    {
+                        Console.WriteLine("Connection to Redis failed.");
+                    };
+
+                    if (!connection.IsConnected)
+                    {
+                        Console.WriteLine("Did not connect to Redis.");
+                    }
+
+                    return connection;
+                };
             });
 
 
